@@ -1,3 +1,4 @@
+// src/components/BookingForm.jsx
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import axios from 'axios';
 import { 
@@ -26,6 +27,7 @@ const useLocationDetails = () => {
     
     try {
       // Simulate API call to get location details
+      // In a real app, you would use the actual API endpoint
       await new Promise(resolve => setTimeout(resolve, 800));
       
       // Mock location details based on your API structure
@@ -162,6 +164,7 @@ const LocationInput = ({ label, value, onChange, placeholder, icon: Icon, error 
 
   const abortRef = useRef(null);
   const debounceRef = useRef(null);
+  
 
   useEffect(() => {
     return () => {
@@ -171,7 +174,7 @@ const LocationInput = ({ label, value, onChange, placeholder, icon: Icon, error 
   }, []);
 
   const fetchSuggestions = async (q) => {
-    if (!q || q.length < 2) {
+    if (!q || q.length < 1) {
       setSuggestions([]);
       setShowSuggestions(false);
       setApiError(null);

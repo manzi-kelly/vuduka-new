@@ -1,95 +1,107 @@
+// locationService.jsx
 import axios from 'axios';
 
-// Create axios instance with default config
+const BASE_URL = import.meta.env.VITE_GEO_SERVICE_URL || 'https://geoservice-e7rc.onrender.com';
+
 const apiClient = axios.create({
-  baseURL: process.env.REACT_APP_API_BASE_URL || 'https://geoservice-e7rc.onrender.com',
+  baseURL: BASE_URL,
   timeout: 10000,
-  headers: {
-    'Content-Type': 'application/json',
-    'Accept': 'application/json',
-  }
+  headers: { 'Content-Type': 'application/json' },
 });
 
-// Request interceptor
-apiClient.interceptors.request.use(
-  (config) => {
-    // Add timestamp to avoid cached requests
-    config.params = {
-      ...config.params,
-      _t: Date.now()
-    };
-    
-    return config;
-  },
-  (error) => {
-    return Promise.reject(error);
-  }
-);
+export const locationService = {
+  /**
+   * Get place suggestions
+   * Tries the real API first, falls back to mock data if it fails
+   */
+  async getSuggestions(q, signal) {
+    if (!q || q.length < 1) return [];
 
-// Response interceptor
-apiClient.interceptors.response.use(
-  (response) => {
-    return response;
-  },
-  (error) => {
-    // Enhanced error handling
-    if (axios.isCancel(error)) {
-      console.log('Request canceled:', error.message);
-      return Promise.reject({ ...error, name: 'CanceledError' });
-    }
-
-    if (error.response) {
-      // Server responded with error status
-      const status = error.response.status;
-      const message = error.response.data?.message || `Server error: ${status}`;
-      
-      console.error('API Error Response:', {
-        status,
-        message,
-        url: error.config?.url,
-        data: error.response.data
+    try {
+      const res = await apiClient.get('/placename/suggest', {
+        params: { q },
+        signal,
       });
-      
-      switch (status) {
-        case 400:
-          error.message = 'Bad request. Please check your input.';
-          break;
-        case 401:
-          error.message = 'Unauthorized access. Please login again.';
-          break;
-        case 403:
-          error.message = 'Access forbidden.';
-          break;
-        case 404:
-          error.message = 'Service not found.';
-          break;
-        case 429:
-          error.message = 'Too many requests. Please slow down.';
-          break;
-        case 500:
-          error.message = 'Internal server error. Please try again later.';
-          break;
-        case 502:
-          error.message = 'Bad gateway. Service temporarily unavailable.';
-          break;
-        case 503:
-          error.message = 'Service temporarily unavailable.';
-          break;
-        default:
-          error.message = message;
-      }
-    } else if (error.request) {
-      // Request was made but no response received
-      console.error('Network Error:', error.request);
-      error.message = 'Network error. Please check your internet connection.';
-    } else {
-      // Something else happened
-      console.error('Error:', error.message);
-      error.message = error.message || 'An unexpected error occurred.';
-    }
-    
-    return Promise.reject(error);
-  }
-);
 
-export default apiClient;
+      // Normalize API response
+      return this._normalizeSuggestions(res.data);
+    } catch (error) {
+      console.warn('API call failed, using mock suggestions', error);
+      return this._getMockSuggestions(q);
+    }
+  },
+
+  /**
+   * Normalize different response formats
+   */
+  _normalizeSuggestions(data) {
+    if (!data) return [];
+    if (Array.isArray(data)) return data;
+    if (Array.isArray(data?.suggestions)) return data.suggestions;
+    if (Array.isArray(data?.results)) return data.results;
+    if (Array.isArray(data?.features)) {
+      return data.features.map((feature) => ({
+        text: feature.properties?.name || feature.properties?.display_name,
+        ...feature.properties,
+      }));
+    }
+    return [];
+  },
+
+  /**
+   * Mock suggestions for fallback
+   */
+  _getMockSuggestions(query) {
+    const rwandaLocations = [
+    
+    ];
+
+    return rwandaLocations
+      .filter(
+        (loc) =>
+          loc.toLowerCase().includes(query.toLowerCase()) ||
+          query.toLowerCase().includes(loc.toLowerCase().split(' ')[0])
+      )
+      .map((loc, index) => ({
+        id: `mock-${index}`,
+        text: loc,
+        type: 'location',
+        isMock: true,
+      }));
+  },
+
+  /**
+   * Utility functions (coordinates, distance, etc.)
+   */
+  isCoordinate(str) {
+    if (!str) return false;
+    return /^-?\d+\.?\d*,\s*-?\d+\.?\d*$/.test(str.trim());
+  },
+
+  parseCoordinate(coordString) {
+    if (!coordString || !this.isCoordinate(coordString)) return null;
+    try {
+      const [lat, lng] = coordString.split(',').map((v) => parseFloat(v.trim()));
+      return { lat, lng };
+    } catch (error) {
+      console.error('Error parsing coordinate:', error);
+      return null;
+    }
+  },
+
+  calculateDistance(coord1, coord2) {
+    if (!coord1 || !coord2 || !coord1.lat || !coord1.lng || !coord2.lat || !coord2.lng) return 0;
+    const R = 6371; // km
+    const dLat = ((coord2.lat - coord1.lat) * Math.PI) / 180;
+    const dLng = ((coord2.lng - coord1.lng) * Math.PI) / 180;
+    const a =
+      Math.sin(dLat / 2) ** 2 +
+      Math.cos((coord1.lat * Math.PI) / 180) *
+        Math.cos((coord2.lat * Math.PI) / 180) *
+        Math.sin(dLng / 2) ** 2;
+    const distance = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return Math.round(distance * 100) / 100;
+  },
+};
+
+export default locationService;
