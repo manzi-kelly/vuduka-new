@@ -6,55 +6,313 @@ import {
   FaCheckCircle, FaClock, FaCalendarAlt, FaMapMarkerAlt, FaTimes,
   FaArrowLeft, FaUser, FaPhone, FaCreditCard, FaRoute,
   FaMap, FaExclamationTriangle, FaPhoneAlt, FaIdCard,
-  FaMapPin, FaSpinner
+  FaMapPin, FaSpinner, FaInfoCircle, FaLocationArrow, FaCity, FaFlag
 } from 'react-icons/fa';
 
 import MapComponent from '../common/MapComponent';
 import PaymentForm from './PaymentForm';
-import { locationService } from '../../api/locationService';
+import { locationService, locationUtils } from '../../api/locationService';
 
-/* ---------- Custom Hook for Location Management ---------- */
-const useLocationDetails = () => {
-  const [locationDetails, setLocationDetails] = useState({});
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
+/* ---------- Custom Hook for Location State Management ---------- */
+const useLocationState = () => {
+  const [locations, setLocations] = useState({
+    pickup: {
+      text: '',
+      magicKey: null,
+      details: null,
+      coordinates: null,
+      loading: false,
+      error: null
+    },
+    dropoff: {
+      text: '',
+      magicKey: null,
+      details: null,
+      coordinates: null,
+      loading: false,
+      error: null
+    }
+  });
 
-  const fetchLocationDetails = useCallback(async (location, type) => {
-    if (!location) return;
+  const updateLocation = useCallback((type, updates) => {
+    setLocations(prev => ({
+      ...prev,
+      [type]: {
+        ...prev[type],
+        ...updates
+      }
+    }));
+  }, []);
+
+  const clearLocation = useCallback((type) => {
+    setLocations(prev => ({
+      ...prev,
+      [type]: {
+        text: '',
+        magicKey: null,
+        details: null,
+        coordinates: null,
+        loading: false,
+        error: null
+      }
+    }));
+  }, []);
+
+  const fetchLocationDetails = useCallback(async (type, locationData) => {
+    if (!locationData) return;
     
-    setLoading(true);
-    setError(null);
+    updateLocation(type, { loading: true, error: null });
     
     try {
-      // Simulate API call to get location details
-      // In a real app, you would use the actual API endpoint
-      await new Promise(resolve => setTimeout(resolve, 800));
+      let details = null;
       
-      // Mock location details based on your API structure
-      const mockDetails = {
+      // If we have magic key, fetch details from API
+      if (locationData.magicKey) {
+        console.log(`Fetching details for ${type} with magic key:`, locationData.magicKey);
+        details = await locationService.getLocationDetails(locationData.magicKey);
+        console.log(`API Response for ${type}:`, details);
+      } 
+      // If we have coordinates, use reverse geocoding
+      else if (locationData.coordinates) {
+        const { lat, lng } = locationData.coordinates;
+        details = await locationService.getLocationByCoordinates(lat, lng);
+      }
+      // Otherwise, search for the location text
+      else if (locationData.text) {
+        console.log(`Searching for location: ${locationData.text}`);
+        const searchResults = await locationService.searchLocations(locationData.text, { 
+          limit: 1,
+          countrycodes: 'rw'
+        });
+        if (searchResults.length > 0) {
+          details = searchResults[0];
+        }
+      }
+      
+      if (details) {
+        console.log(`Location details fetched for ${type}:`, details);
+        
+        // Process and store the API data
+        const processedDetails = {
+          // API Response fields
+          id: details.id,
+          name: details.name || details.text || locationData.text,
+          address: details.address || details.name || locationData.text,
+          city: details.city || 'Kigali',
+          country: details.country || 'Rwanda',
+          countryCode: details.countryCode || 'rw',
+          postcode: details.postcode || '',
+          type: details.type || 'location',
+          importance: details.importance || 0,
+          magicKey: details.magicKey || locationData.magicKey,
+          
+          // Coordinates from API or fallback
+          coordinates: details.coordinates || {
+            lat: -1.9441 + Math.random() * 0.1,
+            lng: 30.0619 + Math.random() * 0.1
+          },
+          
+          // Metadata
+          boundingBox: details.boundingBox,
+          isMock: details.isMock || false,
+          fetchedAt: new Date().toISOString()
+        };
+        
+        updateLocation(type, {
+          details: processedDetails,
+          coordinates: processedDetails.coordinates,
+          loading: false,
+          error: null
+        });
+        
+        return processedDetails;
+      } else {
+        // Fallback mock data
+        const mockDetails = {
+          id: `mock-${Date.now()}`,
+          name: locationData.text,
+          address: locationData.text,
+          city: 'Kigali',
+          country: 'Rwanda',
+          countryCode: 'rw',
+          type: 'location',
+          coordinates: {
+            lat: -1.9441 + Math.random() * 0.1,
+            lng: 30.0619 + Math.random() * 0.1
+          },
+          isMock: true,
+          fetchedAt: new Date().toISOString()
+        };
+        
+        updateLocation(type, {
+          details: mockDetails,
+          coordinates: mockDetails.coordinates,
+          loading: false,
+          error: null
+        });
+        
+        return mockDetails;
+      }
+      
+    } catch (err) {
+      console.error(`Error fetching ${type} location details:`, err);
+      
+      const errorDetails = {
+        id: `error-${Date.now()}`,
+        name: locationData.text,
+        address: locationData.text,
+        city: 'Kigali',
+        country: 'Rwanda',
         coordinates: {
           lat: -1.9441 + Math.random() * 0.1,
           lng: 30.0619 + Math.random() * 0.1
         },
-        address: location,
-        city: "Kigali",
-        country: "Rwanda"
+        isMock: true,
+        error: err.message,
+        fetchedAt: new Date().toISOString()
       };
       
-      setLocationDetails(prev => ({
-        ...prev,
-        [type]: mockDetails
-      }));
+      updateLocation(type, {
+        details: errorDetails,
+        coordinates: errorDetails.coordinates,
+        loading: false,
+        error: `Failed to fetch location details: ${err.message}`
+      });
       
-    } catch (err) {
-      setError(`Failed to fetch ${type} location details`);
-      console.error('Location details error:', err);
+      return errorDetails;
+    }
+  }, [updateLocation]);
+
+  return {
+    locations,
+    updateLocation,
+    clearLocation,
+    fetchLocationDetails
+  };
+};
+
+/* ---------- Custom Hook for Routing ---------- */
+const useRouting = () => {
+  const [routeInfo, setRouteInfo] = useState(null);
+  const [routeLoading, setRouteLoading] = useState(false);
+  const [routeError, setRouteError] = useState(null);
+
+  // Function to calculate route using the routing API
+  const calculateRoute = useCallback(async (startCoords, endCoords, startTime = 'now') => {
+    if (!startCoords || !endCoords) {
+      setRouteError('Both start and end coordinates are required');
+      return null;
+    }
+
+    setRouteLoading(true);
+    setRouteError(null);
+
+    try {
+      const params = new URLSearchParams();
+      params.append('stops', `${startCoords.lng}, ${startCoords.lat} ; ${endCoords.lng}, ${endCoords.lat}`);
+      params.append('startTime', startTime === 'now' ? new Date().toISOString() : startTime);
+      // Prepare the request payload
+      const requestPayload = {
+        stops: [
+          `${startCoords.lng}, ${startCoords.lat} ; ${endCoords.lng}, ${endCoords.lat}`// [lng, lat] format
+          
+        ],
+        startTime: startTime === 'now' ? new Date().toISOString() : startTime
+      };
+
+      console.log('Sending routing request:', requestPayload);
+
+      // Call the routing API
+      const response = await axios.post('https://geoservice-e7rc.onrender.com/route/solve?', {params} ,{
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        timeout: 30000 // 30 second timeout
+      });
+
+      console.log('Routing API response:', response.data);
+
+      if (response.data && response.data.features && response.data.features.length > 0) {
+        const routeFeature = response.data.features[0];
+        
+        // Extract route information
+        const routeData = {
+          distance: routeFeature.properties?.distance || 0, // in meters
+          time: routeFeature.properties?.time || 0, // in seconds
+          polyline: routeFeature.geometry?.coordinates || [],
+          summary: routeFeature.properties?.summary || {},
+          legs: routeFeature.properties?.legs || [],
+          isMock: false,
+          apiResponse: response.data
+        };
+
+        // Convert distance to kilometers and time to minutes
+        const distanceKm = (routeData.distance / 1000).toFixed(1);
+        const timeMinutes = Math.ceil(routeData.time / 60);
+
+        const processedRouteInfo = {
+          ...routeData,
+          distanceKm: parseFloat(distanceKm),
+          timeMinutes: timeMinutes,
+          coordinates: routeData.polyline.map(coord => ({
+            lat: coord[1],
+            lng: coord[0]
+          }))
+        };
+
+        setRouteInfo(processedRouteInfo);
+        return processedRouteInfo;
+      } else {
+        throw new Error('No route found in API response');
+      }
+    } catch (error) {
+      console.error('Routing API error:', error);
+      
+      let errorMessage = 'Failed to calculate route';
+      if (error.response) {
+        errorMessage = `Routing API error: ${error.response.status} - ${error.response.data?.message || 'Unknown error'}`;
+      } else if (error.request) {
+        errorMessage = 'No response from routing server. Please check your connection.';
+      } else {
+        errorMessage = `Routing error: ${error.message}`;
+      }
+
+      setRouteError(errorMessage);
+      
+      // Fallback to mock data if API fails
+      const mockRouteInfo = {
+        distance: locationUtils.calculateDistance(startCoords, endCoords) || 
+                 Math.floor(Math.random() * 30) + 5,
+        time: Math.floor(locationUtils.calculateDistance(startCoords, endCoords) * 2) + 15,
+        polyline: [],
+        coordinates: [],
+        isMock: true,
+        distanceKm: locationUtils.calculateDistance(startCoords, endCoords) || 
+                   Math.floor(Math.random() * 30) + 5,
+        timeMinutes: Math.floor((locationUtils.calculateDistance(startCoords, endCoords) || 10) * 2) + 15,
+        error: errorMessage
+      };
+      
+      setRouteInfo(mockRouteInfo);
+      return mockRouteInfo;
     } finally {
-      setLoading(false);
+      setRouteLoading(false);
     }
   }, []);
 
-  return { locationDetails, loading, error, fetchLocationDetails };
+  // Function to clear route
+  const clearRoute = useCallback(() => {
+    setRouteInfo(null);
+    setRouteError(null);
+  }, []);
+
+  return {
+    routeInfo,
+    routeLoading,
+    routeError,
+    calculateRoute,
+    clearRoute
+  };
 };
 
 /* ---------- Custom Hook for Drivers Management ---------- */
@@ -68,10 +326,8 @@ const useDrivers = () => {
     setError(null);
     
     try {
-      // Simulate API call to get nearby drivers
       await new Promise(resolve => setTimeout(resolve, 1200));
       
-      // Mock drivers data with realistic Rwandan information
       const mockDrivers = [
         {
           id: 1,
@@ -123,23 +379,6 @@ const useDrivers = () => {
           online: true,
           carColor: "Gray",
           carYear: "2020"
-        },
-        {
-          id: 4,
-          name: "Alice M.",
-          carModel: "Mazda CX-5",
-          licensePlate: "RAD 012D",
-          phone: "+250 788 456 789",
-          rating: 4.9,
-          trips: 156,
-          eta: 4,
-          coordinates: {
-            lat: (pickupCoords?.lat || -1.9441) + (Math.random() * 0.02 - 0.01),
-            lng: (pickupCoords?.lng || 30.0619) + (Math.random() * 0.02 - 0.01)
-          },
-          online: true,
-          carColor: "Red",
-          carYear: "2023"
         }
       ];
       
@@ -155,16 +394,124 @@ const useDrivers = () => {
   return { drivers, loading, error, fetchNearbyDrivers };
 };
 
+/* ---------- LocationDetailsPanel Component ---------- */
+const LocationDetailsPanel = ({ location, type, onClose }) => {
+  if (!location || !location.details) return null;
+
+  const details = location.details;
+  
+  return (
+    <div className="bg-white border border-gray-200 rounded-xl shadow-lg p-4 mb-4">
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="font-semibold text-gray-800 flex items-center">
+          <FaInfoCircle className="mr-2 text-blue-600" />
+          {type === 'pickup' ? 'Pickup Location Details' : 'Dropoff Location Details'}
+        </h3>
+        {onClose && (
+          <button
+            onClick={onClose}
+            className="text-gray-400 hover:text-gray-600"
+          >
+            <FaTimes />
+          </button>
+        )}
+      </div>
+      
+      <div className="space-y-3">
+        {/* Basic Info */}
+        <div className="grid grid-cols-2 gap-3">
+          <div className="bg-blue-50 p-3 rounded-lg">
+            <div className="flex items-center text-sm text-gray-600 mb-1">
+              <FaMapMarkerAlt className="mr-2 text-blue-500" />
+              Location
+            </div>
+            <div className="font-medium text-gray-800 truncate">{details.name}</div>
+          </div>
+          
+          <div className="bg-green-50 p-3 rounded-lg">
+            <div className="flex items-center text-sm text-gray-600 mb-1">
+              <FaCity className="mr-2 text-green-500" />
+              City
+            </div>
+            <div className="font-medium text-gray-800">{details.city}</div>
+          </div>
+        </div>
+        
+        {/* Address */}
+        {details.address && (
+          <div className="bg-gray-50 p-3 rounded-lg">
+            <div className="text-sm text-gray-600 mb-1">Full Address</div>
+            <div className="font-medium text-gray-800">{details.address}</div>
+          </div>
+        )}
+        
+        {/* Coordinates */}
+        {details.coordinates && (
+          <div className="bg-purple-50 p-3 rounded-lg">
+            <div className="flex items-center text-sm text-gray-600 mb-1">
+              <FaLocationArrow className="mr-2 text-purple-500" />
+              Coordinates
+            </div>
+            <div className="font-mono text-sm text-gray-800">
+              {details.coordinates.lat.toFixed(6)}, {details.coordinates.lng.toFixed(6)}
+            </div>
+          </div>
+        )}
+        
+        {/* Additional Details */}
+        <div className="grid grid-cols-3 gap-2 text-sm">
+          {details.country && (
+            <div className="flex items-center">
+              <FaFlag className="mr-1 text-gray-400" />
+              <span className="text-gray-600">{details.country}</span>
+            </div>
+          )}
+          
+          {details.type && (
+            <div className="text-gray-600">
+              Type: <span className="font-medium">{details.type}</span>
+            </div>
+          )}
+          
+          {details.postcode && (
+            <div className="text-gray-600">
+              Postal: <span className="font-medium">{details.postcode}</span>
+            </div>
+          )}
+        </div>
+        
+        {/* API Metadata */}
+        <div className="pt-3 border-t border-gray-200 text-xs text-gray-500">
+          <div className="flex justify-between">
+            <span>Magic Key: {details.magicKey ? details.magicKey.substring(0, 15) + '...' : 'N/A'}</span>
+            <span>Source: {details.isMock ? 'Mock Data' : 'API'}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 /* ---------- LocationInput component ---------- */
-const LocationInput = ({ label, value, onChange, placeholder, icon: Icon, error }) => {
+const LocationInput = ({ 
+  label, 
+  value, 
+  onChange, 
+  placeholder, 
+  icon: Icon, 
+  error,
+  onLocationSelect,
+  locationDetails,
+  loading: externalLoading
+}) => {
   const [suggestions, setSuggestions] = useState([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [apiError, setApiError] = useState(null);
+  const [showDetails, setShowDetails] = useState(false);
 
   const abortRef = useRef(null);
   const debounceRef = useRef(null);
-  
 
   useEffect(() => {
     return () => {
@@ -190,11 +537,14 @@ const LocationInput = ({ label, value, onChange, placeholder, icon: Icon, error 
     setApiError(null);
 
     try {
+      console.log(`Fetching suggestions for: "${q}"`);
       const data = await locationService.getSuggestions(q, abortRef.current.signal);
+      console.log('Suggestions received:', data);
       setSuggestions(Array.isArray(data) ? data : []);
       setShowSuggestions(true);
     } catch (err) {
       if (err?.code === 'ERR_CANCELED' || err?.name === 'CanceledError' || err?.name === 'AbortError') {
+        // Request was cancelled, ignore
       } else {
         console.error('Suggestion API error', err);
         setApiError('Failed to load suggestions. Try again.');
@@ -209,6 +559,7 @@ const LocationInput = ({ label, value, onChange, placeholder, icon: Icon, error 
     const val = e.target.value;
     onChange(val);
     setApiError(null);
+    setShowDetails(false);
 
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => {
@@ -216,19 +567,36 @@ const LocationInput = ({ label, value, onChange, placeholder, icon: Icon, error 
     }, 350);
   };
 
-  const handleSuggestionClick = (s) => {
-    const value = typeof s === 'string' ? s : (s && s.text) ? s.text : String(s);
-    onChange(value);
+  const handleSuggestionClick = async (suggestion) => {
+    const text = suggestion.text || suggestion.name || suggestion.display_name || String(suggestion);
+    const magicKey = suggestion.magicKey || suggestion.magic_key;
+    
+    onChange(text);
     setShowSuggestions(false);
     setSuggestions([]);
     setApiError(null);
+    setShowDetails(true);
+    
+    // Call parent handler with the selected suggestion data
+    if (onLocationSelect) {
+      onLocationSelect({
+        text,
+        magicKey,
+        suggestionData: suggestion,
+        coordinates: suggestion.coordinates
+      });
+    }
   };
 
   const handleClear = () => {
     onChange('');
+    if (onLocationSelect) {
+      onLocationSelect(null);
+    }
     setSuggestions([]);
     setShowSuggestions(false);
     setApiError(null);
+    setShowDetails(false);
     if (abortRef.current) abortRef.current.abort();
   };
 
@@ -258,7 +626,7 @@ const LocationInput = ({ label, value, onChange, placeholder, icon: Icon, error 
         )}
       </div>
 
-      {isLoading && (
+      {(isLoading || externalLoading) && (
         <div className="absolute right-12 top-1/2 transform -translate-y-1/2">
           <FaSpinner className="animate-spin text-blue-600" />
         </div>
@@ -275,17 +643,40 @@ const LocationInput = ({ label, value, onChange, placeholder, icon: Icon, error 
 
       {showSuggestions && suggestions.length > 0 && (
         <div className="absolute z-20 w-full mt-1 bg-white border border-gray-200 rounded-xl shadow-lg max-h-60 overflow-y-auto">
-          {suggestions.map((s, i) => {
-            const text = typeof s === 'string' ? s : (s && s.text) ? s.text : String(s);
+          {suggestions.map((suggestion, index) => {
+            const text = suggestion.text || suggestion.name || suggestion.display_name || String(suggestion);
+            const hasMagicKey = suggestion.magicKey || suggestion.magic_key;
+            const city = suggestion.city || suggestion.town || suggestion.village;
+            
             return (
               <div
-                key={i}
-                onClick={() => handleSuggestionClick(s)}
+                key={suggestion.id || index}
+                onClick={() => handleSuggestionClick(suggestion)}
                 className="px-4 py-3 hover:bg-blue-50 cursor-pointer transition-colors duration-150 border-b border-gray-100 last:border-b-0"
               >
-                <div className="flex items-center">
-                  <FaMapMarkerAlt className="text-blue-500 mr-3 flex-shrink-0" />
-                  <span className="text-gray-800 font-medium">{text}</span>
+                <div className="flex items-start">
+                  <FaMapMarkerAlt className={`mt-1 mr-3 flex-shrink-0 ${hasMagicKey ? 'text-green-500' : 'text-blue-500'}`} />
+                  <div className="flex-1">
+                    <div className="flex items-center">
+                      <span className="text-gray-800 font-medium">{text}</span>
+                      {hasMagicKey && (
+                        <span className="ml-2 text-xs text-green-600 bg-green-50 px-2 py-0.5 rounded">
+                          Verified
+                        </span>
+                      )}
+                    </div>
+                    {city && (
+                      <div className="text-sm text-gray-500 mt-1 flex items-center">
+                        <FaCity className="mr-1" size={12} />
+                        {city}, Rwanda
+                      </div>
+                    )}
+                    {suggestion.type && (
+                      <div className="text-xs text-gray-400 mt-1">
+                        Type: {suggestion.type}
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
             );
@@ -294,6 +685,17 @@ const LocationInput = ({ label, value, onChange, placeholder, icon: Icon, error 
       )}
 
       {error && <p className="text-red-500 text-sm mt-2 font-medium">{error}</p>}
+      
+      {/* Show details panel when location is selected and has details */}
+      {showDetails && locationDetails && (
+        <div className="mt-3">
+          <LocationDetailsPanel 
+            location={{ details: locationDetails }} 
+            type={label.toLowerCase().includes('pickup') ? 'pickup' : 'dropoff'}
+            onClose={() => setShowDetails(false)}
+          />
+        </div>
+      )}
     </div>
   );
 };
@@ -365,6 +767,115 @@ const DateTimePicker = ({ selectedDateTime, onDateTimeChange, error }) => {
           </div>
         </div>
       )}
+    </div>
+  );
+};
+
+/* ---------- RouteDetails Component ---------- */
+const RouteDetails = ({ routeInfo, routeLoading, routeError, onRecalculate }) => {
+  if (routeLoading) {
+    return (
+      <div className="bg-blue-50 border border-blue-200 rounded-xl p-6 mb-4">
+        <div className="flex items-center justify-center">
+          <FaSpinner className="animate-spin text-blue-600 mr-3" />
+          <span className="text-blue-700 font-medium">Calculating optimal route...</span>
+        </div>
+      </div>
+    );
+  }
+
+  if (routeError) {
+    return (
+      <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-6 mb-4">
+        <div className="flex items-start">
+          <FaExclamationTriangle className="text-yellow-500 mr-3 mt-1 flex-shrink-0" />
+          <div className="flex-1">
+            <h3 className="font-semibold text-yellow-800 mb-2">Route Calculation Issue</h3>
+            <p className="text-yellow-700 mb-3">{routeError}</p>
+            {onRecalculate && (
+              <button
+                onClick={onRecalculate}
+                className="bg-yellow-500 hover:bg-yellow-600 text-white py-2 px-4 rounded-lg font-semibold transition-colors duration-200"
+              >
+                Try Again
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (!routeInfo) return null;
+
+  return (
+    <div className="bg-green-50 border border-green-200 rounded-xl p-6 mb-4">
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="font-semibold text-gray-800 text-lg flex items-center">
+          <FaRoute className="mr-2 text-green-600" />
+          Route Details
+        </h3>
+        {routeInfo.isMock && (
+          <span className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded">
+            Estimated Route
+          </span>
+        )}
+      </div>
+      
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+        <div className="bg-white p-3 rounded-lg border border-green-100">
+          <div className="text-sm text-gray-600 mb-1">Distance</div>
+          <div className="text-xl font-bold text-gray-800">{routeInfo.distanceKm?.toFixed(1) || routeInfo.distance} km</div>
+        </div>
+        
+        <div className="bg-white p-3 rounded-lg border border-green-100">
+          <div className="text-sm text-gray-600 mb-1">Est. Time</div>
+          <div className="text-xl font-bold text-gray-800">{routeInfo.timeMinutes || routeInfo.time} min</div>
+        </div>
+        
+        <div className="bg-white p-3 rounded-lg border border-green-100">
+          <div className="text-sm text-gray-600 mb-1">Route Type</div>
+          <div className="text-lg font-semibold text-gray-800">Optimal</div>
+        </div>
+        
+        <div className="bg-white p-3 rounded-lg border border-green-100">
+          <div className="text-sm text-gray-600 mb-1">Status</div>
+          <div className="text-lg font-semibold text-green-600">
+            {routeInfo.isMock ? 'Estimated' : 'Calculated'}
+          </div>
+        </div>
+      </div>
+      
+      {routeInfo.summary && (
+        <div className="bg-white border border-gray-200 rounded-lg p-4">
+          <h4 className="font-semibold text-gray-700 mb-2">Route Summary</h4>
+          <div className="text-sm text-gray-600 space-y-1">
+            <div className="flex justify-between">
+              <span>Roads:</span>
+              <span className="font-medium">
+                {Object.entries(routeInfo.summary.road_types || {}).map(([type, value]) => (
+                  <span key={type} className="ml-2">{type}: {value}</span>
+                ))}
+              </span>
+            </div>
+            {routeInfo.summary.instructions && (
+              <div className="mt-2">
+                <div className="font-medium mb-1">Key Instructions:</div>
+                <ul className="list-disc list-inside space-y-1">
+                  {routeInfo.summary.instructions.slice(0, 3).map((instruction, idx) => (
+                    <li key={idx} className="text-gray-600">{instruction}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+      
+      <div className="mt-4 text-xs text-gray-500 flex justify-between">
+        <span>Route ID: {routeInfo.isMock ? 'MOCK-' + Date.now() : 'API-' + Date.now()}</span>
+        <span>Updated: {new Date().toLocaleTimeString()}</span>
+      </div>
     </div>
   );
 };
@@ -444,22 +955,37 @@ const DriverCard = ({ driver, isSelected, onSelect, onCall }) => {
 
 /* ---------- BookingForm ---------- */
 export default function BookingForm() {
-  const [currentStep, setCurrentStep] = useState('booking'); // 'booking', 'drivers', 'confirmation'
-  const [pickupLocation, setPickupLocation] = useState('');
-  const [dropoffLocation, setDropoffLocation] = useState('');
+  // Step management
+  const [currentStep, setCurrentStep] = useState('booking');
+  
+  // Location state using custom hook
+  const { 
+    locations, 
+    updateLocation, 
+    clearLocation, 
+    fetchLocationDetails 
+  } = useLocationState();
+  
+  // Routing state using custom hook
+  const { 
+    routeInfo, 
+    routeLoading, 
+    routeError, 
+    calculateRoute, 
+    clearRoute 
+  } = useRouting();
+  
+  // Other state
   const [selectedRide, setSelectedRide] = useState(null);
   const [selectedDriver, setSelectedDriver] = useState(null);
   const [order, setOrder] = useState(null);
   const [errors, setErrors] = useState({});
   const [rideTimeOption, setRideTimeOption] = useState('now');
   const [scheduledDateTime, setScheduledDateTime] = useState('');
-  const [routeInfo, setRouteInfo] = useState(null);
   const [calculatedPrice, setCalculatedPrice] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showPaymentForm, setShowPaymentForm] = useState(false);
 
-  // Custom hooks for state management
-  const { locationDetails, fetchLocationDetails } = useLocationDetails();
   const { drivers, loading: driversLoading, error: driversError, fetchNearbyDrivers } = useDrivers();
 
   const rideTypes = [
@@ -468,27 +994,75 @@ export default function BookingForm() {
     { id: 'suv', name: 'SUV', icon: FaRoad, basePrice: 3000, time: '10 min', description: 'Spacious for groups', features: [{ text: '6-8 Seats' }, { text: 'Extra Luggage Space' }, { text: 'Family Friendly' }] },
   ];
 
-  const calculatePrice = useCallback((distance, rideType) => {
-    const ride = rideTypes.find(r => r.id === rideType);
-    if (!ride || !distance) return null;
-    const baseFare = 2000;
-    const distanceFare = distance * ride.basePrice;
-    const total = baseFare + distanceFare;
-    return Math.round(total / 500) * 500;
-  }, [rideTypes]);
-
-  const handleRouteCalculate = (routeData) => {
-    setRouteInfo(routeData);
-    if (selectedRide && routeData) {
-      const price = calculatePrice(routeData.distance, selectedRide);
-      setCalculatedPrice(price);
+  // Handle location selection from input
+  const handleLocationSelect = useCallback(async (type, locationData) => {
+    if (!locationData) {
+      updateLocation(type, {
+        text: '',
+        magicKey: null,
+        details: null,
+        coordinates: null
+      });
+      clearRoute();
+      return;
     }
-  };
 
+    updateLocation(type, {
+      text: locationData.text,
+      magicKey: locationData.magicKey
+    });
+
+    // Fetch detailed location information from API
+    const details = await fetchLocationDetails(type, {
+      text: locationData.text,
+      magicKey: locationData.magicKey,
+      coordinates: locationData.coordinates
+    });
+
+    // If we have both locations with coordinates, calculate route
+    if (details?.coordinates) {
+      const otherType = type === 'pickup' ? 'dropoff' : 'pickup';
+      if (locations[otherType]?.coordinates) {
+        await handleRouteCalculation();
+      }
+    }
+  }, [locations, fetchLocationDetails, updateLocation, clearRoute]);
+
+  // Calculate route using the routing API
+  const handleRouteCalculation = useCallback(async () => {
+    if (!locations.pickup.coordinates || !locations.dropoff.coordinates) {
+      return;
+    }
+
+    const startTime = rideTimeOption === 'now' ? 'now' : scheduledDateTime;
+    const routeData = await calculateRoute(
+      locations.pickup.coordinates,
+      locations.dropoff.coordinates,
+      startTime
+    );
+
+    // Calculate price if ride is selected and route data is available
+    if (selectedRide && routeData) {
+      const ride = rideTypes.find(r => r.id === selectedRide);
+      const baseFare = 2000;
+      const distanceFare = (routeData.distanceKm || routeData.distance) * ride.basePrice;
+      const total = Math.round((baseFare + distanceFare) / 500) * 500;
+      setCalculatedPrice(total);
+    }
+
+    return routeData;
+  }, [locations, selectedRide, rideTimeOption, scheduledDateTime, calculateRoute, rideTypes]);
+
+  // Recalculate route
+  const handleRecalculateRoute = useCallback(async () => {
+    await handleRouteCalculation();
+  }, [handleRouteCalculation]);
+
+  // Validate form
   const validateForm = () => {
     const newErrors = {};
-    if (!pickupLocation.trim()) newErrors.pickupLocation = 'Pickup location is required';
-    if (!dropoffLocation.trim()) newErrors.dropoffLocation = 'Dropoff location is required';
+    if (!locations.pickup.text.trim()) newErrors.pickupLocation = 'Pickup location is required';
+    if (!locations.dropoff.text.trim()) newErrors.dropoffLocation = 'Dropoff location is required';
     if (!selectedRide) newErrors.ride = 'Please select a ride type';
     
     if (rideTimeOption === 'schedule') {
@@ -507,20 +1081,35 @@ export default function BookingForm() {
     return Object.keys(newErrors).length === 0;
   };
 
+  // Handle form submission
   const handleSubmit = async () => {
     if (!validateForm()) return;
     
     setIsSubmitting(true);
     
     try {
-      // Fetch location details for both pickup and dropoff
-      await Promise.all([
-        fetchLocationDetails(pickupLocation, 'pickup'),
-        fetchLocationDetails(dropoffLocation, 'dropoff')
-      ]);
+      // Ensure we have location details for both pickup and dropoff
+      if (!locations.pickup.details && locations.pickup.text) {
+        await fetchLocationDetails('pickup', {
+          text: locations.pickup.text,
+          magicKey: locations.pickup.magicKey
+        });
+      }
+      
+      if (!locations.dropoff.details && locations.dropoff.text) {
+        await fetchLocationDetails('dropoff', {
+          text: locations.dropoff.text,
+          magicKey: locations.dropoff.magicKey
+        });
+      }
+
+      // Calculate route if not already calculated
+      if (!routeInfo) {
+        await handleRouteCalculation();
+      }
 
       // Fetch nearby drivers based on pickup location
-      const pickupCoords = locationDetails.pickup?.coordinates;
+      const pickupCoords = locations.pickup.coordinates;
       await fetchNearbyDrivers(pickupCoords, selectedRide);
 
       // Move to drivers selection step
@@ -562,20 +1151,30 @@ export default function BookingForm() {
       
       const newOrder = {
         id: Date.now().toString(),
-        pickup: pickupLocation,
-        dropoff: dropoffLocation,
+        pickup: {
+          text: locations.pickup.text,
+          details: locations.pickup.details
+        },
+        dropoff: {
+          text: locations.dropoff.text,
+          details: locations.dropoff.details
+        },
         type: ride ? ride.name : selectedRide,
         price,
         date: displayDate,
         time: displayTime,
         immediate: isImmediate,
         scheduledDateTime: isImmediate ? null : scheduledDateTime,
-        distance: routeInfo?.distance,
-        duration: routeInfo?.time,
+        distance: routeInfo?.distanceKm || routeInfo?.distance,
+        duration: routeInfo?.timeMinutes || routeInfo?.time,
+        routeInfo: routeInfo,
         timestamp: new Date().toISOString(),
         status: isImmediate ? 'confirmed' : 'scheduled',
         driver: selectedDriver,
-        locationDetails: locationDetails
+        coordinates: {
+          pickup: locations.pickup.coordinates,
+          dropoff: locations.dropoff.coordinates
+        }
       };
       
       setOrder(newOrder);
@@ -601,13 +1200,13 @@ export default function BookingForm() {
 
   const handleNewBooking = () => {
     setCurrentStep('booking');
-    setPickupLocation('');
-    setDropoffLocation('');
+    clearLocation('pickup');
+    clearLocation('dropoff');
+    clearRoute();
     setSelectedRide(null);
     setSelectedDriver(null);
     setRideTimeOption('now');
     setScheduledDateTime('');
-    setRouteInfo(null);
     setCalculatedPrice(null);
     setOrder(null);
     setShowPaymentForm(false);
@@ -618,18 +1217,7 @@ export default function BookingForm() {
     try {
       await new Promise(res => setTimeout(res, 1200));
       
-      // Reset form after successful payment
-      setCurrentStep('booking');
-      setPickupLocation('');
-      setDropoffLocation('');
-      setSelectedRide(null);
-      setSelectedDriver(null);
-      setRideTimeOption('now');
-      setScheduledDateTime('');
-      setRouteInfo(null);
-      setCalculatedPrice(null);
-      setOrder(null);
-      setShowPaymentForm(false);
+      handleNewBooking();
       
       console.log('Payment success', paymentData);
       alert('Booking confirmed! Your driver will arrive shortly.');
@@ -640,7 +1228,8 @@ export default function BookingForm() {
     }
   };
 
-  const showMap = pickupLocation && dropoffLocation && selectedRide;
+  // Check if we should show the map
+  const showMap = locations.pickup.text && locations.dropoff.text && selectedRide;
 
   return (
     <section className="py-12 px-4 sm:px-6 lg:px-8 bg-gradient-to-br from-gray-50 to-blue-50 min-h-screen">
@@ -670,21 +1259,70 @@ export default function BookingForm() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
                 <LocationInput 
                   label="Pickup Location" 
-                  value={pickupLocation} 
-                  onChange={setPickupLocation} 
+                  value={locations.pickup.text} 
+                  onChange={(value) => updateLocation('pickup', { text: value })} 
+                  onLocationSelect={(data) => handleLocationSelect('pickup', data)}
+                  locationDetails={locations.pickup.details}
+                  loading={locations.pickup.loading}
                   placeholder="Enter pickup location in Rwanda" 
                   icon={FaMapMarkerAlt} 
                   error={errors.pickupLocation} 
                 />
                 <LocationInput 
                   label="Dropoff Location" 
-                  value={dropoffLocation} 
-                  onChange={setDropoffLocation} 
+                  value={locations.dropoff.text} 
+                  onChange={(value) => updateLocation('dropoff', { text: value })} 
+                  onLocationSelect={(data) => handleLocationSelect('dropoff', data)}
+                  locationDetails={locations.dropoff.details}
+                  loading={locations.dropoff.loading}
                   placeholder="Enter dropoff location in Rwanda" 
                   icon={FaMapMarkerAlt} 
                   error={errors.dropoffLocation} 
                 />
               </div>
+
+              {/* Location Details Summary */}
+              {(locations.pickup.details || locations.dropoff.details) && (
+                <div className="mb-6 p-4 bg-gray-50 rounded-xl border border-gray-200">
+                  <h3 className="font-semibold text-gray-800 mb-3">Location Details</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {locations.pickup.details && (
+                      <div className="text-sm">
+                        <div className="flex items-center text-gray-600 mb-1">
+                          <div className="w-2 h-2 bg-blue-500 rounded-full mr-2"></div>
+                          <span className="font-medium">Pickup:</span>
+                        </div>
+                        <div className="ml-4">
+                          <div className="text-gray-800">{locations.pickup.details.name}</div>
+                          <div className="text-gray-500 text-xs">
+                            {locations.pickup.details.city}, {locations.pickup.details.country}
+                            {locations.pickup.details.coordinates && (
+                              <span className="ml-2">📍 {locations.pickup.details.coordinates.lat.toFixed(4)}, {locations.pickup.details.coordinates.lng.toFixed(4)}</span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                    {locations.dropoff.details && (
+                      <div className="text-sm">
+                        <div className="flex items-center text-gray-600 mb-1">
+                          <div className="w-2 h-2 bg-green-500 rounded-full mr-2"></div>
+                          <span className="font-medium">Dropoff:</span>
+                        </div>
+                        <div className="ml-4">
+                          <div className="text-gray-800">{locations.dropoff.details.name}</div>
+                          <div className="text-gray-500 text-xs">
+                            {locations.dropoff.details.city}, {locations.dropoff.details.country}
+                            {locations.dropoff.details.coordinates && (
+                              <span className="ml-2">📍 {locations.dropoff.details.coordinates.lat.toFixed(4)}, {locations.dropoff.details.coordinates.lng.toFixed(4)}</span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
 
               <div className="mb-8">
                 <label className="text-sm font-semibold text-gray-700 mb-4 block">When do you need the ride?</label>
@@ -764,8 +1402,14 @@ export default function BookingForm() {
                         </div>
                         {routeInfo && isSelected && (
                           <div className="mt-3 pt-3 border-t border-gray-200 text-xs text-gray-600">
-                            <div className="flex justify-between"><span>Distance:</span><span className="font-medium">{routeInfo.distance} km</span></div>
-                            <div className="flex justify-between"><span>Est. Time:</span><span className="font-medium">{routeInfo.time} min</span></div>
+                            <div className="flex justify-between">
+                              <span>Distance:</span>
+                              <span className="font-medium">{routeInfo.distanceKm?.toFixed(1) || routeInfo.distance} km</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span>Est. Time:</span>
+                              <span className="font-medium">{routeInfo.timeMinutes || routeInfo.time} min</span>
+                            </div>
                           </div>
                         )}
                       </div>
@@ -774,6 +1418,18 @@ export default function BookingForm() {
                 </div>
                 {errors.ride && <p className="text-red-500 text-sm mt-4 font-medium">{errors.ride}</p>}
               </div>
+
+              {/* Route Details Section */}
+              {locations.pickup.coordinates && locations.dropoff.coordinates && (
+                <div className="mb-8">
+                  <RouteDetails 
+                    routeInfo={routeInfo}
+                    routeLoading={routeLoading}
+                    routeError={routeError}
+                    onRecalculate={handleRecalculateRoute}
+                  />
+                </div>
+              )}
 
               <div className="flex justify-center">
                 <button 
@@ -811,7 +1467,12 @@ export default function BookingForm() {
                   </div>
                   <div className="text-right">
                     <div className="text-sm text-gray-600">Route</div>
-                    <div className="font-semibold text-gray-800">{pickupLocation} → {dropoffLocation}</div>
+                    <div className="font-semibold text-gray-800">{locations.pickup.text} → {locations.dropoff.text}</div>
+                    {routeInfo && (
+                      <div className="text-xs text-gray-500">
+                        {routeInfo.distanceKm?.toFixed(1) || routeInfo.distance} km • {routeInfo.timeMinutes || routeInfo.time} min
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -851,23 +1512,22 @@ export default function BookingForm() {
                     )}
                   </div>
 
-                  {/* Map with Drivers */}
+                  {/* Map with Drivers and Route */}
                   <div className="bg-gray-50 rounded-xl p-6 border border-gray-200">
                     <h3 className="font-semibold text-gray-800 mb-4 flex items-center">
                       <FaMap className="mr-2 text-blue-600" />
-                      Live Driver Locations
+                      Live Driver Locations & Route
                     </h3>
                     <div className="h-96 bg-white rounded-lg border border-gray-300 overflow-hidden">
-                      {locationDetails.pickup && locationDetails.dropoff ? (
+                      {locations.pickup.coordinates && locations.dropoff.coordinates ? (
                         <MapComponent
-                          pickupLocation={pickupLocation}
-                          dropoffLocation={dropoffLocation}
+                          pickupLocation={locations.pickup.text}
+                          dropoffLocation={locations.dropoff.text}
                           routeInfo={routeInfo}
-                          onRouteCalculate={handleRouteCalculate}
                           drivers={drivers}
                           selectedDriver={selectedDriver}
-                          pickupCoords={locationDetails.pickup.coordinates}
-                          dropoffCoords={locationDetails.dropoff.coordinates}
+                          pickupCoords={locations.pickup.coordinates}
+                          dropoffCoords={locations.dropoff.coordinates}
                         />
                       ) : (
                         <div className="h-full flex items-center justify-center bg-gradient-to-br from-blue-50 to-green-50">
@@ -878,6 +1538,30 @@ export default function BookingForm() {
                         </div>
                       )}
                     </div>
+                    
+                    {routeInfo && (
+                      <div className="mt-4 p-3 bg-gray-50 border border-gray-200 rounded-lg">
+                        <div className="flex items-center justify-between text-sm">
+                          <div className="flex items-center">
+                            <FaRoute className="text-blue-500 mr-2" />
+                            <span className="font-medium">Route:</span>
+                            <span className="ml-2">{routeInfo.distanceKm?.toFixed(1) || routeInfo.distance} km</span>
+                          </div>
+                          <div className="flex items-center">
+                            <FaClock className="text-green-500 mr-2" />
+                            <span className="font-medium">Time:</span>
+                            <span className="ml-2">{routeInfo.timeMinutes || routeInfo.time} min</span>
+                          </div>
+                          {calculatedPrice && (
+                            <div className="flex items-center">
+                              <FaCreditCard className="text-purple-500 mr-2" />
+                              <span className="font-medium">Fare:</span>
+                              <span className="ml-2 text-blue-600 font-bold">{calculatedPrice.toLocaleString()} RWF</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
                     
                     {selectedDriver && (
                       <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
@@ -977,14 +1661,30 @@ export default function BookingForm() {
                         <div className="w-3 h-3 bg-blue-500 rounded-full mr-3"></div>
                         Pickup Location
                       </div>
-                      <div className="font-medium text-gray-800 ml-6">{order.pickup}</div>
+                      <div className="font-medium text-gray-800 ml-6">{order.pickup.text}</div>
+                      {order.pickup.details?.address && (
+                        <div className="text-sm text-gray-500 ml-6 mt-1">{order.pickup.details.address}</div>
+                      )}
+                      {order.coordinates?.pickup && (
+                        <div className="text-xs text-gray-400 ml-6 mt-1">
+                          📍 {order.coordinates.pickup.lat.toFixed(6)}, {order.coordinates.pickup.lng.toFixed(6)}
+                        </div>
+                      )}
                     </div>
                     <div>
                       <div className="flex items-center text-sm text-gray-600 mb-2">
                         <div className="w-3 h-3 bg-green-500 rounded-full mr-3"></div>
                         Drop-off Location
                       </div>
-                      <div className="font-medium text-gray-800 ml-6">{order.dropoff}</div>
+                      <div className="font-medium text-gray-800 ml-6">{order.dropoff.text}</div>
+                      {order.dropoff.details?.address && (
+                        <div className="text-sm text-gray-500 ml-6 mt-1">{order.dropoff.details.address}</div>
+                      )}
+                      {order.coordinates?.dropoff && (
+                        <div className="text-xs text-gray-400 ml-6 mt-1">
+                          📍 {order.coordinates.dropoff.lat.toFixed(6)}, {order.coordinates.dropoff.lng.toFixed(6)}
+                        </div>
+                      )}
                     </div>
                     
                     <div className="grid grid-cols-2 gap-4 pt-4 border-t border-gray-200">
@@ -1002,6 +1702,14 @@ export default function BookingForm() {
                     <div className="flex justify-between"><span className="text-gray-600">Distance:</span><span className="font-medium">{order.distance || 'N/A'} km</span></div>
                     <div className="flex justify-between"><span className="text-gray-600">Estimated Time:</span><span className="font-medium">{order.duration || 'N/A'} minutes</span></div>
                     <div className="flex justify-between"><span className="text-gray-600">Ride Type:</span><span className="font-medium">{order.type}</span></div>
+                    {order.routeInfo?.summary && (
+                      <div className="pt-3 border-t border-gray-200">
+                        <div className="text-sm text-gray-600 mb-2">Route Summary:</div>
+                        <div className="text-xs text-gray-500">
+                          {order.routeInfo.isMock ? 'Estimated route' : 'Calculated by routing service'}
+                        </div>
+                      </div>
+                    )}
                     <div className="pt-4 border-t border-gray-200">
                       <div className="flex justify-between text-lg font-bold">
                         <span>Total Amount:</span>
@@ -1039,28 +1747,6 @@ export default function BookingForm() {
               onPaymentSuccess={() => {}} 
               isSubmitting={isSubmitting} 
             />
-          )}
-
-          {/* Route Preview - Only show in booking step */}
-          {currentStep === 'booking' && showMap && !showPaymentForm && (
-            <div className="bg-white rounded-2xl p-6 border border-gray-200 shadow-lg">
-              <div className="flex items-center justify-between mb-6">
-                <h3 className="text-xl font-bold text-gray-800">Route Preview</h3>
-                {routeInfo && calculatedPrice && (
-                  <div className="bg-blue-50 px-4 py-2 rounded-lg border border-blue-200">
-                    <div className="text-sm text-blue-700 font-semibold">Estimated: {calculatedPrice.toLocaleString()} RWF</div>
-                  </div>
-                )}
-              </div>
-
-              <div className="h-64 bg-gradient-to-br from-blue-50 to-green-50 rounded-xl flex items-center justify-center border-2 border-dashed border-gray-300">
-                <div className="text-center">
-                  <FaRoute className="text-blue-500 text-4xl mx-auto mb-4" />
-                  <p className="text-gray-600 font-medium">Complete booking to see detailed map</p>
-                  <p className="text-gray-500 text-sm mt-2">Route: {pickupLocation} → {dropoffLocation}</p>
-                </div>
-              </div>
-            </div>
           )}
         </div>
       </div>
