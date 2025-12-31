@@ -220,7 +220,6 @@ const useMapState = (pickupLocation, dropoffLocation, onRouteCalculate, graphics
 
     const updateMap = async () => {
       clearMapElements();
-      setRouteInfo(null);
 
       try {
         // Geocode both locations in parallel
@@ -255,7 +254,15 @@ const useMapState = (pickupLocation, dropoffLocation, onRouteCalculate, graphics
         // If external route info is provided, draw it; otherwise calculate route
         if (externalRouteInfo && externalRouteInfo.paths) {
           drawRoute({ paths: externalRouteInfo.paths });
+          // Set internal route info for display
+          const externalInfo = {
+            distance: externalRouteInfo.distanceKm || externalRouteInfo.distance,
+            time: externalRouteInfo.timeMinutes || externalRouteInfo.time,
+            isAccurate: externalRouteInfo.isAccurate || false
+          };
+          setRouteInfo(externalInfo);
         } else {
+          setRouteInfo(null); // Clear before calculating new route
           await calculateAndDisplayRoute(pickupData, dropoffData);
         }
 

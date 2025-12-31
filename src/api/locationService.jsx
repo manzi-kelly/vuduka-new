@@ -48,7 +48,7 @@ export const locationService = {
       const res = await apiClient.post('/route/solve',{} ,{
         params: {
           stops,
-          startTime: 'now'
+          startTime: time || 'now'
         }
       });
       console.log('Route response:', res.data);
