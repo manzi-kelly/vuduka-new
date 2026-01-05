@@ -1,40 +1,20 @@
 // locationService.jsx (Refactored)
 import axios from 'axios';
+import apiClient from './axiosClient';
 
-// Use environment variable for base URL with fallback
-const BASE_URL = import.meta.env.VITE_GEO_SERVICE_URL || 'https://geoservice-e7rc.onrender.com';
-
-// Check if we're in development and need CORS proxy
+// Check if we're in development
 const isDevelopment = import.meta.env.DEV;
 
-// Create axios instance with better defaults
-const apiClient = axios.create({
-  baseURL: BASE_URL,
-  timeout: 10000,
-  headers: {
-    'Content-Type': 'application/json',
-  },
-});
-
-// Add request interceptor for development CORS handling
+// Attach a lightweight request interceptor to the centralized client
 apiClient.interceptors.request.use(
   (config) => {
-    // Add timestamp to prevent caching
     config.params = {
       ...config.params,
       _t: Date.now(),
     };
-    
-    // If in development, we might need different handling
-    if (isDevelopment) {
-      // You could add development-specific headers here
-    }
-    
     return config;
   },
-  (error) => {
-    return Promise.reject(error);
-  }
+  (error) => Promise.reject(error)
 );
 
 // Add response interceptor for better error handling
@@ -60,6 +40,25 @@ apiClient.interceptors.response.use(
 );
 
 export const locationService = {
+  //
+  // Get route between two locations    
+  // 
+  async findRoute(stops, time) {
+    try {
+      const res = await apiClient.post('/route/solve',{} ,{
+        params: {
+          stops,
+          startTime: 'now'
+        }
+      });
+      console.log('Route response:', res.data);
+      return res.data;
+    } catch (error) {
+      console.error('Error fetching route:', error);
+      throw error;
+    }
+  },
+
   /**
    * Get place suggestions with improved CORS handling
    */
@@ -372,28 +371,28 @@ export const locationService = {
    * Normalize location details
    */
   _normalizeLocationDetails(data) {
+    console.log('Normalizing location details:', data[0]);
     if (!data) return null;
-    
+    const normalizedData = data[0];
     // Handle different response formats
-    const details = data.properties || data.address || data;
-    
+  
     return {
-      id: data.id || details.id || `location-${Date.now()}`,
-      name: details.name || details.display_name || '',
-      address: details.address || details.display_name || '',
-      street: details.street || details.road || '',
-      city: details.city || details.town || details.village || details.county || '',
-      country: details.country || 'Rwanda',
-      countryCode: details.country_code || 'rw',
-      postcode: details.postcode || '',
+      id: normalizedData.id || normalizedData.place_id || '',
+      name: normalizedData.name || normalizedData.name || '',
+      address: normalizedData.address || normalizedData.address || '',
+      street: normalizedData.street || normalizedData.road || '',
+      city: normalizedData.city || normalizedData.town || normalizedData.village || normalizedData.county || '',
+      country: normalizedData.country || 'Rwanda',
+      countryCode: normalizedData.country_code || 'rw',
+      postcode: normalizedData.postcode || '',
       coordinates: {
-        lat: parseFloat(data.lat || details.lat || (data.geometry?.coordinates?.[1]) || -1.9441),
-        lng: parseFloat(data.lon || details.lon || (data.geometry?.coordinates?.[0]) || 30.0619)
+        lat: parseFloat(normalizedData.location.x),
+        lng: parseFloat(normalizedData.location.y)
       },
-      type: details.type || details.category || 'location',
-      importance: details.importance || details.rank || 0,
-      boundingBox: data.boundingbox || details.boundingbox,
-      magicKey: data.magicKey || details.magicKey || details.magic_key,
+      type: normalizedData.type || normalizedData.type || 'location',
+      importance: normalizedData.importance || normalizedData.rank || 0,
+      boundingBox: normalizedData.boundingbox || normalizedData.boundingbox,
+      magicKey: normalizedData.magicKey || normalizedData.magicKey || normalizedData.magic_key,
       isMock: false,
       fetchedAt: new Date().toISOString()
     };

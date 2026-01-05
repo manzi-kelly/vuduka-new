@@ -1,6 +1,6 @@
 // src/components/BookingForm.jsx
 import React, { useState, useCallback, useRef, useEffect } from 'react';
-import axios from 'axios';
+import apiClient from '../../api/axiosClient';
 import { 
   FaCar, FaStar, FaRoad, FaUsers, FaSuitcase, FaShieldAlt, 
   FaCheckCircle, FaClock, FaCalendarAlt, FaMapMarkerAlt, FaTimes,
@@ -92,9 +92,8 @@ const useLocationState = () => {
       if (details) {
         console.log(`Location details fetched for ${type}:`, details);
         
-        // Process and store the API data
+        // Process and store the API data (do not synthesize mock coordinates)
         const processedDetails = {
-          // API Response fields
           id: details.id,
           name: details.name || details.text || locationData.text,
           address: details.address || details.name || locationData.text,
