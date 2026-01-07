@@ -1,473 +1,162 @@
-import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { FaMapMarkerAlt, FaSearch, FaTimes, FaRoute, FaRoad, FaLocationArrow, FaExclamationTriangle } from 'react-icons/fa';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { FaRoute, FaRoad, FaLocationArrow, FaExclamationTriangle } from 'react-icons/fa';
 
-// Custom Hook for API Calls
-const useLocationAPI = () => {
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
+// Function to draw pickup and dropoff markers as points
+const drawMarkers = (graphicsLayerRef, map, pickupCoords, dropoffCoords, pickupLocation, dropoffLocation) => {
+  if (!map || !graphicsLayerRef || !pickupCoords || !dropoffCoords) return { pickup: null, dropoff: null };
 
-  const geocodeAddress = useCallback(async (address) => {
-    if (!address) return null;
-    
-    setLoading(true);
-    setError(null);
-    
-    try {
-      // Try OpenStreetMap Nominatim first
-      const response = await fetch(
-        `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(address + ', Rwanda')}&limit=1&countrycodes=rw`
-      );
-      
-      if (response.ok) {
-        const data = await response.json();
-        if (data && data.length > 0) {
-          return {
-            lat: parseFloat(data[0].lat),
-            lng: parseFloat(data[0].lon),
-            address: data[0].display_name,
-            confidence: data[0].importance || 0.5
-          };
-        }
-      }
-      throw new Error('Geocoding failed');
-    } catch (err) {
-      console.warn('Geocoding failed:', err);
-      // Fallback to predefined coordinates
-      return getFallbackCoordinates(address);
-    } finally {
-      setLoading(false);
+  const Graphic = window.__esri__.Graphic;
+  const Point = window.__esri__.Point;
+  const SimpleMarkerSymbol = window.__esri__.SimpleMarkerSymbol;
+
+  // Create pickup point
+  const pickupPoint = new Point({
+    longitude: pickupCoords.lng,
+    latitude: pickupCoords.lat
+  });
+
+  const pickupSymbol = new SimpleMarkerSymbol({
+    style: 'circle',
+    color: '#10b981',
+    size: '12px',
+    outline: {
+      color: [255, 255, 255, 1],
+      width: 2
     }
-  }, []);
+  });
 
-  const calculateRoute = useCallback(async (startCoords, endCoords) => {
-    if (!startCoords || !endCoords) return null;
-    
-    setLoading(true);
-    setError(null);
-    
-    try {
-      const response = await fetch(
-        `https://router.project-osrm.org/route/v1/driving/${startCoords.lng},${startCoords.lat};${endCoords.lng},${endCoords.lat}?overview=full&geometries=geojson`
-      );
-      
-      if (response.ok) {
-        const data = await response.json();
-        
-        if (data.code === 'Ok' && data.routes?.length > 0) {
-          const route = data.routes[0];
-          return {
-            geometry: route.geometry,
-            distance: (route.distance / 1000).toFixed(1),
-            duration: Math.round(route.duration / 60),
-            isAccurate: true
-          };
-        }
-      }
-      throw new Error('Routing failed');
-    } catch (err) {
-      console.warn('Routing failed, using fallback:', err);
-      return calculateFallbackRoute(startCoords, endCoords);
-    } finally {
-      setLoading(false);
+  const pickupGraphic = new Graphic({
+    geometry: pickupPoint,
+    symbol: pickupSymbol,
+    popupTemplate: {
+      title: '🚗 Pickup',
+      content: `<div class="p-2"><span class="text-sm">${pickupLocation}</span></div>`
     }
-  }, []);
+  });
 
-  return {
-    geocodeAddress,
-    calculateRoute,
-    loading,
-    error,
-    setError
-  };
+  graphicsLayerRef.add(pickupGraphic);
+
+  // Create dropoff point
+  const dropoffPoint = new Point({
+    longitude: dropoffCoords.lng,
+    latitude: dropoffCoords.lat
+  });
+
+  const dropoffSymbol = new SimpleMarkerSymbol({
+    style: 'circle',
+    color: '#ef4444',
+    size: '12px',
+    outline: {
+      color: [255, 255, 255, 1],
+      width: 2
+    }
+  });
+
+  const dropoffGraphic = new Graphic({
+    geometry: dropoffPoint,
+    symbol: dropoffSymbol,
+    popupTemplate: {
+      title: '🎯 Dropoff',
+      content: `<div class="p-2"><span class="text-sm">${dropoffLocation}</span></div>`
+    }
+  });
+
+  graphicsLayerRef.add(dropoffGraphic);
+
+  return { pickup: pickupGraphic, dropoff: dropoffGraphic };
 };
 
-// Custom Hook for Map State Management
-const useMapState = (pickupLocation, dropoffLocation, onRouteCalculate, graphicsLayerRef, externalRouteInfo) => {
-  const [map, setMap] = useState(null);
-  const [mapLoaded, setMapLoaded] = useState(false);
-  const [routeInfo, setRouteInfo] = useState(null);
-  const [markers, setMarkers] = useState([]);
-  const [routeLine, setRouteLine] = useState(null);
-  const [isCalculatingRoute, setIsCalculatingRoute] = useState(false);
+// Function to draw route as polyline
+const drawRoute = (graphicsLayerRef, map, routePaths) => {
+  if (!map || !graphicsLayerRef || !routePaths) return null;
 
-  const { geocodeAddress, calculateRoute, loading: apiLoading, error: apiError, setError } = useLocationAPI();
+  const Graphic = window.__esri__.Graphic;
+  const Polyline = window.__esri__.Polyline;
+  const SimpleLineSymbol = window.__esri__.SimpleLineSymbol;
 
-  // Clear map elements (ArcGIS graphics)
+  console.log('drawRoute paths:', routePaths);
+  const route = routePaths[0];
+  console.log('drawRoute route:', route);
+  // routePaths is expected to be an array of [lng, lat] coordinate pairs
+  const polyline = new Polyline({
+    paths:  route
+  });
 
-  const clearMapElements = useCallback(() => {
-    if (graphicsLayerRef.current) {
-      graphicsLayerRef.current.removeAll();
-    }
-    setMarkers([]);
-    setRouteLine(null);
-  }, []);
+  const lineSymbol = new SimpleLineSymbol({
+    color: '#3b82f6',
+    width: 4,
+    style: 'solid'
+  });
 
-  // Add marker to map (ArcGIS)
-  const addMarker = useCallback((latlng, popupContent, color = '#2b6cb0') => {
-    if (!map || !graphicsLayerRef.current) return null;
+  const graphic = new Graphic({
+    geometry: polyline,
+    symbol: lineSymbol
+  });
 
-    const [lat, lng] = latlng;
-    const Graphic = window.__esri__.Graphic;
-    const SimpleMarkerSymbol = window.__esri__.SimpleMarkerSymbol;
+  graphicsLayerRef.add(graphic);
 
-    // Create a point graphic
-    const point = {
-      type: 'point',
-      longitude: lng,
-      latitude: lat
-    };
-
-    const symbol = new SimpleMarkerSymbol({
-      style: 'circle',
-      color: color,
-      size: '12px',
-      outline: { color: [255,255,255,1], width: 2 }
-    });
-
-    const graphic = new Graphic({ geometry: point, symbol, attributes: { popupContent }, popupTemplate: { title: '', content: popupContent } });
-
-    graphicsLayerRef.current.add(graphic);
-    setMarkers(prev => [...prev, graphic]);
-    return graphic;
-  }, [map]);
-
-  // Draw route line (ArcGIS)
-  const drawRoute = useCallback((geometry) => {
-    if (!map || !graphicsLayerRef.current || !geometry) return null;
-
-    const Graphic = window.__esri__.Graphic;
-    const SimpleLineSymbol = window.__esri__.SimpleLineSymbol;
-
-    // Handle both GeoJSON format and ArcGIS paths format
-    let paths;
-    if (geometry.paths) {
-      // ArcGIS format: paths is already an array of [lng, lat] coordinates
-      paths = geometry.paths;
-    } else if (geometry.coordinates) {
-      // GeoJSON format: convert coordinates to paths
-      paths = geometry.coordinates.map(coord => [coord[0], coord[1]]);
-    } else {
-      return null;
-    }
-
-    const polyline = {
-      type: 'polyline',
-      paths
-    };
-
-    const lineSymbol = new SimpleLineSymbol({
-      color: '#3b82f6',
-      width: 6,
-      style: 'solid'
-    });
-
-    const graphic = new Graphic({ geometry: polyline, symbol: lineSymbol });
-    graphicsLayerRef.current.add(graphic);
-    setRouteLine(graphic);
-    return graphic;
-  }, [map]);
-
-  // Fit map to bounds (ArcGIS)
-  const fitMapToBounds = useCallback(async (items) => {
-    if (!map || !graphicsLayerRef.current) return;
-
-    try {
-      const view = map; // `map` is the ArcGIS view
-      const graphics = graphicsLayerRef.current.graphics.toArray();
-      if (!graphics.length) return;
-      await view.goTo(graphicsLayerRef.current.graphics);
-    } catch (err) {
-      console.warn('fitMapToBounds failed', err);
-    }
-  }, [map]);
-
-  // Calculate route between points
-  const calculateAndDisplayRoute = useCallback(async (pickupCoords, dropoffCoords) => {
-    if (!pickupCoords || !dropoffCoords) return;
-
-    setIsCalculatingRoute(true);
-    setError(null);
-
-    try {
-      const routeData = await calculateRoute(pickupCoords, dropoffCoords);
-      
-      if (routeData) {
-        drawRoute(routeData.geometry);
-        
-        const newRouteInfo = {
-          distance: routeData.distance,
-          time: routeData.duration,
-          isAccurate: routeData.isAccurate || false
-        };
-        
-        setRouteInfo(newRouteInfo);
-        
-        if (onRouteCalculate) {
-          onRouteCalculate(newRouteInfo);
-        }
-      }
-    } catch (err) {
-      setError('Failed to calculate route');
-      console.error('Route calculation error:', err);
-    } finally {
-      setIsCalculatingRoute(false);
-    }
-  }, [calculateRoute, drawRoute, onRouteCalculate, setError]);
-
-  // Update map when locations change or external route info is provided
-  useEffect(() => {
-    if (!map || !mapLoaded || !pickupLocation || !dropoffLocation) return;
-
-    const updateMap = async () => {
-      clearMapElements();
-
-      try {
-        // Geocode both locations in parallel
-        const [pickupData, dropoffData] = await Promise.all([
-          geocodeAddress(pickupLocation),
-          geocodeAddress(dropoffLocation)
-        ]);
-
-        if (!pickupData || !dropoffData) {
-          throw new Error('Could not find locations');
-        }
-
-        // Add markers
-        const pickupMarker = addMarker(
-          [pickupData.lat, pickupData.lng],
-          `<div class="p-2 min-w-[200px]">
-            <strong class="text-green-600">🚗 Pickup</strong><br/>
-            <span class="text-sm">${pickupLocation}</span>
-          </div>`,
-          '#10b981'
-        );
-
-        const dropoffMarker = addMarker(
-          [dropoffData.lat, dropoffData.lng],
-          `<div class="p-2 min-w-[200px]">
-            <strong class="text-red-600">🎯 Dropoff</strong><br/>
-            <span class="text-sm">${dropoffLocation}</span>
-          </div>`,
-          '#ef4444'
-        );
-
-        // If external route info is provided, draw it; otherwise calculate route
-        if (externalRouteInfo && externalRouteInfo.paths) {
-          drawRoute({ paths: externalRouteInfo.paths });
-          // Set internal route info for display
-          const externalInfo = {
-            distance: externalRouteInfo.distanceKm || externalRouteInfo.distance,
-            time: externalRouteInfo.timeMinutes || externalRouteInfo.time,
-            isAccurate: externalRouteInfo.isAccurate || false
-          };
-          setRouteInfo(externalInfo);
-        } else {
-          setRouteInfo(null); // Clear before calculating new route
-          await calculateAndDisplayRoute(pickupData, dropoffData);
-        }
-
-        // Fit map to show all elements
-        const mapItems = [pickupMarker, dropoffMarker];
-        if (routeLine) mapItems.push(routeLine);
-        fitMapToBounds(mapItems);
-
-      } catch (err) {
-        setError('Failed to update map with locations');
-        console.error('Map update error:', err);
-      }
-    };
-
-    const timeoutId = setTimeout(updateMap, 500);
-    return () => clearTimeout(timeoutId);
-  }, [
-    map, mapLoaded, pickupLocation, dropoffLocation, externalRouteInfo,
-    geocodeAddress, addMarker, calculateAndDisplayRoute, drawRoute,
-    fitMapToBounds, clearMapElements
-  ]);
-
-  return {
-    map,
-    setMap,
-    mapLoaded,
-    setMapLoaded,
-    routeInfo,
-    markers,
-    routeLine,
-    isCalculatingRoute,
-    apiLoading,
-    apiError,
-    clearMapElements,
-    addMarker,
-    drawRoute,
-    fitMapToBounds
-  };
+  return graphic;
 };
-
-// Custom Hook for Map Controls
-const useMapControls = (mapState) => {
-  const { map, addMarker, fitMapToBounds } = mapState;
-
-  const handleSearch = useCallback(async () => {
-    if (!map) return;
-
-    const searchTerm = prompt('Enter location to search in Rwanda:');
-    if (!searchTerm) return;
-
-    try {
-      const response = await fetch(
-        `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(searchTerm + ', Rwanda')}&limit=1&countrycodes=rw`
-      );
-      
-      if (response.ok) {
-        const data = await response.json();
-        if (data && data.length > 0) {
-          const location = data[0];
-          const latlng = [parseFloat(location.lat), parseFloat(location.lon)];
-          
-          // Add search marker
-          addMarker(
-            latlng,
-            `<div class="p-2">
-              <strong class="text-purple-600">🔍 ${searchTerm}</strong><br/>
-              <span class="text-sm">${location.display_name}</span>
-            </div>`,
-            '#8b5cf6'
-          );
-
-          // Center map (ArcGIS view)
-          if (map && map.goTo) {
-            map.goTo({ center: [latlng[1], latlng[0]], zoom: 14 });
-          }
-        } else {
-          alert('Location not found');
-        }
-      }
-    } catch (err) {
-      alert('Search failed. Please try again.');
-    }
-  }, [map, addMarker]);
-
-  const handleCurrentLocation = useCallback(() => {
-    if (!map || !navigator.geolocation) return;
-
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        const { latitude, longitude } = position.coords;
-        const latlng = [latitude, longitude];
-        
-        // Add location marker
-        addMarker(
-          latlng,
-          `<div class="p-2">
-            <strong class="text-yellow-600">📍 My Location</strong><br/>
-            <span class="text-sm">Your current position</span>
-          </div>`,
-          '#f59e0b'
-        );
-
-        // Center map (ArcGIS view)
-        if (map && map.goTo) {
-          map.goTo({ center: [latlng[1], latlng[0]], zoom: 14 });
-        }
-      },
-      (error) => {
-        alert('Unable to get your location. Please check permissions.');
-      }
-    );
-  }, [map, addMarker]);
-
-  return {
-    handleSearch,
-    handleCurrentLocation
-  };
-};
-
-// Helper Functions
-const getFallbackCoordinates = (address) => {
-  const locations = {
-    'kigali': { lat: -1.9441, lng: 30.0588, name: 'Kigali, Rwanda' },
-    'kigali airport': { lat: -1.9686, lng: 30.1394, name: 'Kigali International Airport' },
-    'kigali convention': { lat: -1.9514, lng: 30.0931, name: 'Kigali Convention Centre' },
-    'butare': { lat: -2.5967, lng: 29.7394, name: 'Butare, Rwanda' },
-    'rubavu': { lat: -1.7028, lng: 29.2561, name: 'Rubavu, Rwanda' },
-    'musanze': { lat: -1.4998, lng: 29.6344, name: 'Musanze, Rwanda' }
-  };
-
-  const lowerAddress = address.toLowerCase();
-  for (const [key, coords] of Object.entries(locations)) {
-    if (lowerAddress.includes(key)) {
-      return { ...coords, address: coords.name, confidence: 0.3 };
-    }
-  }
-
-  return { 
-    lat: -1.9441, 
-    lng: 30.0588, 
-    address: 'Kigali, Rwanda',
-    confidence: 0.1 
-  };
-};
-
-const calculateFallbackRoute = (startCoords, endCoords) => {
-  const distance = calculateDistance(startCoords, endCoords);
-  const duration = Math.max(Math.round(distance * 2.5), 10);
-  
-  return {
-    geometry: {
-      type: 'LineString',
-      coordinates: [
-        [startCoords.lng, startCoords.lat],
-        [endCoords.lng, endCoords.lat]
-      ]
-    },
-    distance: distance.toFixed(1),
-    duration: duration,
-    isAccurate: false
-  };
-};
-
-const calculateDistance = (coords1, coords2) => {
-  const R = 6371;
-  const dLat = deg2rad(coords2.lat - coords1.lat);
-  const dLng = deg2rad(coords2.lng - coords1.lng);
-  const a = 
-    Math.sin(dLat/2) * Math.sin(dLat/2) +
-    Math.cos(deg2rad(coords1.lat)) * Math.cos(deg2rad(coords2.lat)) * 
-    Math.sin(dLng/2) * Math.sin(dLng/2); 
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)); 
-  return R * c;
-};
-
-const deg2rad = (deg) => deg * (Math.PI/180);
 
 // Main Map Component
 const MapComponent = ({ 
   pickupLocation, 
-  dropoffLocation, 
-  routeInfo: externalRouteInfo,
-  onRouteCalculate 
+  dropoffLocation,
+  pickupCoords,
+  dropoffCoords,
+  routeInfo
 }) => {
   const mapRef = useRef(null);
   const graphicsLayerRef = useRef(null);
   
-  // Use custom hooks for state management
-  const mapState = useMapState(pickupLocation, dropoffLocation, onRouteCalculate, graphicsLayerRef, externalRouteInfo);
-  const mapControls = useMapControls(mapState);
-  
-  const { 
-    map, setMap, mapLoaded, setMapLoaded, 
-    isCalculatingRoute, apiLoading, apiError,
-    routeInfo: internalRouteInfo
-  } = mapState;
-  
-  const { handleSearch, handleCurrentLocation } = mapControls;
+  const [map, setMap] = useState(null);
+  const [mapLoaded, setMapLoaded] = useState(false);
+  const [setRouteInfo] = useState(null);
+  const [error, setError] = useState(null);
 
-  // Display route info from props or internal state
-  const displayRouteInfo = externalRouteInfo || internalRouteInfo;
+  console.log('MapComponent render:', { pickupCoords, dropoffCoords, routeInfo: routeInfo });
+
+  // Display route info from props
+  const displayRouteInfo =  routeInfo;
 
   // Extract distance and time for display
   const routeDistance = displayRouteInfo?.distanceKm || displayRouteInfo?.distance;
   const routeTime = displayRouteInfo?.timeMinutes || displayRouteInfo?.time;
+
+  // Update map when coordinates or route info changes
+  useEffect(() => {
+    if (!map || !mapLoaded || !pickupCoords || !dropoffCoords || !graphicsLayerRef.current) return;
+
+    try {
+      // Clear previous graphics
+      graphicsLayerRef.current.removeAll();
+
+      // Draw markers
+      const markers = drawMarkers(graphicsLayerRef.current, map, pickupCoords, dropoffCoords, pickupLocation, dropoffLocation);
+
+      // Draw route if available
+      if (routeInfo && routeInfo.paths) {
+        drawRoute(graphicsLayerRef.current, map, routeInfo.paths);
+        // Set internal route info for display
+        const routeDetails = {
+          distance: routeInfo.distanceKm || routeInfo.distance,
+          time: routeInfo.timeMinutes || routeInfo.time,
+          isAccurate: routeInfo.isAccurate || false
+        };
+        //setRouteInfo(routeDetails);
+      } else {
+        setRouteInfo(null);
+      }
+
+      // Fit map to show all elements
+      //if (graphicsLayerRef.current.graphics.length > 0) {
+      //  map.goTo(graphicsLayerRef.current.graphics);
+      //}
+    } catch (err) {
+      setError('Failed to update map');
+      console.error('Map update error:', err);
+    }
+  }, [map, mapLoaded, pickupCoords, dropoffCoords, routeInfo, pickupLocation, dropoffLocation]);
 
   // Initialize ArcGIS MapView
   useEffect(() => {
@@ -485,6 +174,8 @@ const MapComponent = ({
           MapViewModule,
           GraphicsLayerModule,
           GraphicModule,
+          PointModule,
+          PolylineModule,
           SimpleMarkerSymbolModule,
           SimpleLineSymbolModule
         ] = await Promise.all([
@@ -492,6 +183,8 @@ const MapComponent = ({
           import('@arcgis/core/views/MapView'),
           import('@arcgis/core/layers/GraphicsLayer'),
           import('@arcgis/core/Graphic'),
+          import('@arcgis/core/geometry/Point'),
+          import('@arcgis/core/geometry/Polyline'),
           import('@arcgis/core/symbols/SimpleMarkerSymbol'),
           import('@arcgis/core/symbols/SimpleLineSymbol')
         ]);
@@ -500,12 +193,16 @@ const MapComponent = ({
         const MapView = MapViewModule.default || MapViewModule.MapView || MapViewModule;
         const GraphicsLayer = GraphicsLayerModule.default || GraphicsLayerModule.GraphicsLayer || GraphicsLayerModule;
         const Graphic = GraphicModule.default || GraphicModule.Graphic || GraphicModule;
+        const Point = PointModule.default || PointModule.Point || PointModule;
+        const Polyline = PolylineModule.default || PolylineModule.Polyline || PolylineModule;
         const SimpleMarkerSymbol = SimpleMarkerSymbolModule.default || SimpleMarkerSymbolModule.SimpleMarkerSymbol || SimpleMarkerSymbolModule;
         const SimpleLineSymbol = SimpleLineSymbolModule.default || SimpleLineSymbolModule.SimpleLineSymbol || SimpleLineSymbolModule;
 
         // Expose some constructors for other helper functions
         window.__esri__ = {
           Graphic,
+          Point,
+          Polyline,
           SimpleMarkerSymbol,
           SimpleLineSymbol
         };
@@ -516,7 +213,7 @@ const MapComponent = ({
           container: mapRef.current,
           map: mapInstance,
           center: [30.0588, -1.9441],
-          zoom: 12
+          zoom: 14
         });
 
         graphicsLayer = new GraphicsLayer();
@@ -528,6 +225,7 @@ const MapComponent = ({
 
         setMap(view);
         setMapLoaded(true);
+        console.log('ArcGIS map initialized successfully');
       } catch (error) {
         console.error('ArcGIS map initialization failed:', error);
       }
@@ -547,11 +245,8 @@ const MapComponent = ({
     };
   }, [mapLoaded]);
 
-  // Show loading state
-  const isLoading = apiLoading || isCalculatingRoute;
-
-  // Show placeholder if no locations selected
-  if (!pickupLocation || !dropoffLocation) {
+  // Show placeholder if no coordinates provided
+  if (!pickupCoords || !dropoffCoords) {
     return (
       <div className="h-64 md:h-96 bg-gray-100 rounded-xl flex items-center justify-center border-2 border-dashed border-gray-300">
         <div className="text-center p-8">
@@ -567,50 +262,18 @@ const MapComponent = ({
 
   return (
     <div className="h-96 md:h-[500px] bg-gray-100 rounded-xl overflow-hidden relative shadow-lg border border-gray-200">
-      {/* Loading Overlay */}
-      {isLoading && (
-        <div className="absolute inset-0 bg-black bg-opacity-50 flex items-center justify-center z-10">
-          <div className="bg-white p-4 rounded-lg flex items-center space-x-3 shadow-lg">
-            <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
-            <span className="text-gray-700 font-medium">
-              {isCalculatingRoute ? 'Calculating route...' : 'Loading...'}
-            </span>
-          </div>
-        </div>
-      )}
-      
       {/* Error Display */}
-      {apiError && (
+      {error && (
         <div className="absolute top-4 left-4 right-4 bg-yellow-50 border border-yellow-200 rounded-lg p-4 z-10">
           <div className="flex items-center">
             <FaExclamationTriangle className="text-yellow-600 mr-3 flex-shrink-0" />
-            <span className="text-yellow-700 text-sm font-medium">{apiError}</span>
+            <span className="text-yellow-700 text-sm font-medium">{error}</span>
           </div>
         </div>
       )}
       
       {/* Map Container */}
       <div ref={mapRef} className="w-full h-full" />
-      
-      {/* Map Controls */}
-      <div className="absolute top-4 right-4 flex flex-col gap-2 z-5">
-        <button 
-          onClick={handleSearch}
-          disabled={isLoading}
-          className="w-10 h-10 bg-white rounded-lg shadow-md flex items-center justify-center hover:bg-gray-50 transition-colors duration-200 border border-gray-200 disabled:opacity-50"
-          title="Search location"
-        >
-          <FaSearch className="text-gray-600 text-sm" />
-        </button>
-        <button 
-          onClick={handleCurrentLocation}
-          disabled={isLoading}
-          className="w-10 h-10 bg-white rounded-lg shadow-md flex items-center justify-center hover:bg-gray-50 transition-colors duration-200 border border-gray-200 disabled:opacity-50"
-          title="My location"
-        >
-          <FaLocationArrow className="text-gray-600 text-sm" />
-        </button>
-      </div>
       
       {/* Route Information Panel */}
       <div className="absolute bottom-4 left-4 bg-white px-4 py-3 rounded-lg shadow-md border border-gray-200 max-w-xs">
@@ -651,18 +314,6 @@ const MapComponent = ({
           )}
         </div>
       </div>
-
-      {/* Route Calculation Status */}
-      {pickupLocation && dropoffLocation && !displayRouteInfo && !isLoading && mapLoaded && (
-        <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-white bg-opacity-90 px-6 py-4 rounded-lg shadow-lg text-center max-w-xs border border-gray-200">
-          <div className="animate-pulse">
-            <FaRoute className="text-blue-500 text-2xl mx-auto mb-2" />
-            <p className="text-gray-700 text-sm font-medium">
-              Calculating optimal route...
-            </p>
-          </div>
-        </div>
-      )}
     </div>
   );
 };

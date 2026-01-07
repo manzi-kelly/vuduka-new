@@ -218,61 +218,6 @@ export const locationService = {
     }
   },
 
-  /**
-   * Get popular locations in Rwanda
-   */
-  async getPopularLocations(signal) {
-    const popularLocations = [
-      { 
-        text: 'Kigali International Airport (KGL)', 
-        city: 'Kigali', 
-        type: 'airport', 
-        importance: 0.9,
-        address: 'Kigali International Airport, Kanombe, Kigali, Rwanda',
-        coordinates: { lat: -1.9686, lng: 30.1395 }
-      },
-      { 
-        text: 'Kigali Convention Center', 
-        city: 'Kigali', 
-        type: 'convention_center', 
-        importance: 0.8,
-        address: 'KG 2 Roundabout, Kigali, Rwanda',
-        coordinates: { lat: -1.9519, lng: 30.0938 }
-      },
-      { 
-        text: 'Nyabugogo Bus Station', 
-        city: 'Kigali', 
-        type: 'bus_station', 
-        importance: 0.7,
-        address: 'Nyabugogo, Kigali, Rwanda',
-        coordinates: { lat: -1.9321, lng: 30.0514 }
-      },
-      { 
-        text: 'Kimironko Market', 
-        city: 'Kigali', 
-        type: 'market', 
-        importance: 0.6,
-        address: 'Kimironko, Kigali, Rwanda',
-        coordinates: { lat: -1.9250, lng: 30.0881 }
-      },
-      { 
-        text: 'Remera Stadium', 
-        city: 'Kigali', 
-        type: 'stadium', 
-        importance: 0.5,
-        address: 'Remera, Kigali, Rwanda',
-        coordinates: { lat: -1.9597, lng: 30.1056 }
-      },
-    ];
-    
-    // Add mock magic keys for consistency
-    return popularLocations.map((loc, index) => ({
-      ...loc,
-      id: `popular-${index}`,
-      magicKey: `popular-${index}`,
-      isMock: true
-    }));
-  },
 
   /**
    * Get suggestions via CORS proxy for development
@@ -619,71 +564,7 @@ export const locationService = {
       }));
   },
 
-  /**
-   * Mock location details for fallback
-   */
-  _getMockLocationDetails(magicKey = null) {
-    const mockLocations = {
-      'mock-kgl-001': {
-        name: 'Kigali International Airport',
-        address: 'Kigali International Airport, Kanombe, Kigali, Rwanda',
-        city: 'Kigali',
-        country: 'Rwanda',
-        countryCode: 'rw',
-        coordinates: { lat: -1.9686, lng: 30.1395 },
-        type: 'airport',
-        importance: 0.9,
-        postcode: 'KGL 001'
-      },
-      'mock-kcc-002': {
-        name: 'Kigali Convention Center',
-        address: 'KG 2 Roundabout, Kigali, Rwanda',
-        city: 'Kigali',
-        country: 'Rwanda',
-        countryCode: 'rw',
-        coordinates: { lat: -1.9519, lng: 30.0938 },
-        type: 'convention_center',
-        importance: 0.8,
-        postcode: 'KGL 002'
-      },
-      'mock-nbs-006': {
-        name: 'Nyabugogo Bus Station',
-        address: 'Nyabugogo, Kigali, Rwanda',
-        city: 'Kigali',
-        country: 'Rwanda',
-        countryCode: 'rw',
-        coordinates: { lat: -1.9321, lng: 30.0514 },
-        type: 'bus_station',
-        importance: 0.8,
-        postcode: 'KGL 003'
-      },
-      'default': {
-        name: 'Location in Kigali',
-        address: 'Kigali, Rwanda',
-        city: 'Kigali',
-        country: 'Rwanda',
-        countryCode: 'rw',
-        coordinates: { 
-          lat: -1.9441 + Math.random() * 0.1,
-          lng: 30.0619 + Math.random() * 0.1
-        },
-        type: 'location',
-        importance: 0.5,
-        postcode: 'KGL 000'
-      }
-    };
-    
-    const location = mockLocations[magicKey] || mockLocations.default;
-    
-    return {
-      ...location,
-      id: magicKey || `mock-${Date.now()}`,
-      magicKey,
-      isMock: true,
-      fetchedAt: new Date().toISOString()
-    };
-  },
-
+ 
   /**
    * Mock search results for fallback
    */
