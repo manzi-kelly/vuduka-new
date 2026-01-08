@@ -3,6 +3,7 @@ import { FaRoute, FaRoad, FaLocationArrow, FaExclamationTriangle } from 'react-i
 
 // Function to draw pickup and dropoff markers as points
 const drawMarkers = (graphicsLayerRef, map, pickupCoords, dropoffCoords, pickupLocation, dropoffLocation) => {
+  console.log('drawMarkers called with:', { pickupCoords, dropoffCoords, pickupLocation, dropoffLocation });
   if (!map || !graphicsLayerRef || !pickupCoords || !dropoffCoords) return { pickup: null, dropoff: null };
 
   const Graphic = window.__esri__.Graphic;
@@ -11,8 +12,8 @@ const drawMarkers = (graphicsLayerRef, map, pickupCoords, dropoffCoords, pickupL
 
   // Create pickup point
   const pickupPoint = new Point({
-    longitude: pickupCoords.lng,
-    latitude: pickupCoords.lat
+    longitude: pickupCoords.lat,
+    latitude: pickupCoords.lng
   });
 
   const pickupSymbol = new SimpleMarkerSymbol({
@@ -38,8 +39,8 @@ const drawMarkers = (graphicsLayerRef, map, pickupCoords, dropoffCoords, pickupL
 
   // Create dropoff point
   const dropoffPoint = new Point({
-    longitude: dropoffCoords.lng,
-    latitude: dropoffCoords.lat
+    longitude: dropoffCoords.lat,
+    latitude: dropoffCoords.lng
   });
 
   const dropoffSymbol = new SimpleMarkerSymbol({
@@ -131,12 +132,13 @@ const MapComponent = ({
       // Clear previous graphics
       graphicsLayerRef.current.removeAll();
 
-      // Draw markers
-      const markers = drawMarkers(graphicsLayerRef.current, map, pickupCoords, dropoffCoords, pickupLocation, dropoffLocation);
+     
 
       // Draw route if available
       if (routeInfo && routeInfo.paths) {
         drawRoute(graphicsLayerRef.current, map, routeInfo.paths);
+        // Draw markers
+        drawMarkers(graphicsLayerRef.current, map, pickupCoords, dropoffCoords, pickupLocation, dropoffLocation);
         // Set internal route info for display
         const routeDetails = {
           distance: routeInfo.distanceKm || routeInfo.distance,
